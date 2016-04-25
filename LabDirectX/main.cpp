@@ -568,23 +568,23 @@ void WaitForPreviousFrame()
 	HRESULT hr;
 	frameIndex = swapChain->GetCurrentBackBufferIndex();
 
-	// if the current fence value is still less than "fenceValue", then we know the GPU has not finished executing
-	// the command queue since it has not reached the "commandQueue->Signal(fence, fenceValue)" command
+	//If the current fence value is still less than "fenceValue", then we know the GPU has not finished executing
+	//The command queue since it has not reached the "commandQueue->Signal(fence, fenceValue)" command
 	if (fence[frameIndex]->GetCompletedValue() < fenceValue[frameIndex])
 	{
-		// we have the fence create an event which is signaled once the fence's current value is "fenceValue"
+		//We have the fence create an event which is signaled once the fence's current value is "fenceValue"
 		hr = fence[frameIndex]->SetEventOnCompletion(fenceValue[frameIndex], fenceEvent);
 		if (FAILED(hr))
 		{
 			Running = false;
 		}
 
-		// We will wait until the fence has triggered the event that it's current value has reached "fenceValue". once it's value
-		// has reached "fenceValue", we know the command queue has finished executing
+		//We will wait until the fence has triggered the event that it's current value has reached "fenceValue". once it's value
+		//has reached "fenceValue", we know the command queue has finished executing
 		WaitForSingleObject(fenceEvent, INFINITE);
 	}
 
-	// increment fenceValue for next frame
+	//Increment fenceValue for next frame
 	fenceValue[frameIndex]++;
 }
 
