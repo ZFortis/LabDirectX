@@ -16,7 +16,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
 	{
 		MessageBox(0, L"Window Initialization - Failed",L"Error", MB_OK);
 		return 1;
-	}
+	} 
 
 	//Initialize direct3d
 	if (!InitD3D()) 
