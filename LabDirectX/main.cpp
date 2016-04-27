@@ -1,4 +1,5 @@
-﻿#include "stdafx.h"
+﻿/*什么是描述符堆？*/
+#include "stdafx.h"
 
 using namespace DirectX; 
 
@@ -134,7 +135,7 @@ bool InitD3D()
 	frameIndex = swapChain->GetCurrentBackBufferIndex();
 
 	//Create the Back Buffers (render target views) Descriptor Heap
-	//用来资源的内存地址
+	//用来存放资源的内存地址
 	D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {};
 	rtvHeapDesc.NumDescriptors = frameBufferCount;
 	rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
@@ -277,7 +278,7 @@ bool InitD3D()
 	inputLayoutDesc.pInputElementDescs = inputLayout;
 
 	//Creat Depth/Stencil Descriptor Heap
-	//view储存在dsDescriptorHeap中，深度资源储存在depthStencilBuffer中
+	//dsDescriptorHeap通过view访问depthStencilBuffer，depthStencilBuffer中储存深度模板资源
 	D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc = {};
 	dsvHeapDesc.NumDescriptors = 1;
 	dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
@@ -307,6 +308,7 @@ bool InitD3D()
 		IID_PPV_ARGS(&depthStencilBuffer));
 	dsDescriptorHeap->SetName(L"Depth/Stencil Resource Heap");
 
+	//创建访问depthStencilBuffer资源的Depth Stencil View，即通过dsDescriptorHeap来描述depthStencilBuffer资源
 	device->CreateDepthStencilView(depthStencilBuffer, &depthStencilDesc, dsDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 
 
@@ -401,7 +403,7 @@ bool InitD3D()
 		D3D12_RESOURCE_STATE_COPY_DEST,
 		nullptr,
 		IID_PPV_ARGS(&indexBuffer));
-	vertexBuffer->SetName(L"Index Buffer Resource Heap");
+	indexBuffer->SetName(L"Index Buffer Resource Heap");
 
 	ID3D12Resource* iBufferUploadHeap;
 	device->CreateCommittedResource(
@@ -411,7 +413,7 @@ bool InitD3D()
 		D3D12_RESOURCE_STATE_GENERIC_READ,
 		nullptr,
 		IID_PPV_ARGS(&iBufferUploadHeap));
-	vertexBuffer->SetName(L"Index Buffer Upload Resource Heap");
+	iBufferUploadHeap->SetName(L"Index Buffer Upload Resource Heap");
 
 	//Store Vertex Buffer in Upload Heap
 	D3D12_SUBRESOURCE_DATA indexData = {};
@@ -436,7 +438,7 @@ bool InitD3D()
 		Running = false;
 	}
 
-	//为三角形创建顶点缓冲视图
+	//为三角形创建顶点缓冲视图，使GPU可以正确的访问这些资源
 	vertexBufferView.BufferLocation = vertexBuffer->GetGPUVirtualAddress();
 	vertexBufferView.StrideInBytes = sizeof(Vertex);
 	vertexBufferView.SizeInBytes = vBufferSize;
@@ -596,6 +598,8 @@ void Cleanup()
 void WaitForPreviousFrame()
 {
 	HRESULT hr;
+
+	//得到当前后缓冲的编号
 	frameIndex = swapChain->GetCurrentBackBufferIndex();
 
 	//If the current fence value is still less than "fenceValue", then we know the GPU has not finished executing
