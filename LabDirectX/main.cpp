@@ -138,7 +138,6 @@ bool InitD3D()
 	D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {};
 	rtvHeapDesc.NumDescriptors = frameBufferCount;
 	rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-
 	rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 	hr = device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&rtvDescriptorHeap));
 	if (FAILED(hr))
@@ -278,6 +277,7 @@ bool InitD3D()
 	inputLayoutDesc.pInputElementDescs = inputLayout;
 
 	//Creat Depth/Stencil Descriptor Heap
+	//view储存在dsDescriptorHeap中，深度资源储存在depthStencilBuffer中
 	D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc = {};
 	dsvHeapDesc.NumDescriptors = 1;
 	dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
@@ -288,6 +288,26 @@ bool InitD3D()
 		Running = false;
 	}
 
+	D3D12_DEPTH_STENCIL_VIEW_DESC depthStencilDesc = {};
+	depthStencilDesc.Format = DXGI_FORMAT_D32_FLOAT;
+	depthStencilDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+	depthStencilDesc.Flags = D3D12_DSV_FLAG_NONE;
+
+	D3D12_CLEAR_VALUE depthOptimizedClearValue = {};
+	depthOptimizedClearValue.Format = DXGI_FORMAT_D32_FLOAT;
+	depthOptimizedClearValue.DepthStencil.Depth = 1.0f;
+	depthOptimizedClearValue.DepthStencil.Stencil = 0;
+
+	device->CreateCommittedResource(
+		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+		D3D12_HEAP_FLAG_NONE,
+		&CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_D32_FLOAT, width, height, 1, 0, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL),
+		D3D12_RESOURCE_STATE_DEPTH_WRITE,
+		&depthOptimizedClearValue,
+		IID_PPV_ARGS(&depthStencilBuffer));
+	dsDescriptorHeap->SetName(L"Depth/Stencil Resource Heap");
+
+	device->CreateDepthStencilView(depthStencilBuffer, &depthStencilDesc, dsDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 
 
 	//Creat Pipeline State Object
@@ -316,10 +336,10 @@ bool InitD3D()
 	Vertex vList[] =
 	{
 		//The first which closer to camera,blue
-		{ -0.5f, 0.5f, 0.5f, 0.0f, 1.0f, 1.0f, 1.0f },			//Top left
-		{ 0.5f, -0.5f, 0.5f, 0.0f, 1.0f, 1.0f, 1.0f },			//Bottom right
-		{ -0.5f, -0.5f, 0.5f, 0.0f, 1.0f, 1.0f, 1.0f },			//Bottom left
-		{ 0.5f, 0.5f, 0.5f, 0.0f, 1.0f, 1.0f, 1.0f },			//Top right
+		{ -0.5f, 0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f },			//Top left
+		{ 0.5f, -0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f },			//Bottom right
+		{ -0.5f, -0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f },			//Bottom left
+		{ 0.5f, 0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f },			//Top right
 	
 		//The second which further from camera,green
 		{ -0.75f, 0.75f ,0.7f, 0.0f, 1.0f, 0.0f, 1.0f },
@@ -471,17 +491,24 @@ void UpdatePipeline()
 	//Here we start recording commands into the commandList (which all the commands will be stored in the commandAllocator)
 
 	//Transition the "frameIndex" render target from the present state to the render target state so the command list draws to it starting from here
+	//renterTargets[frameIndex]确定轮到哪个后缓冲
 	commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(renderTargets[frameIndex], D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
 
-	//Here we again get the handle to our current render target view so we can set it as the render target in the output merger stage of the pipeline
+	//Get the handle to current render target view so we can set it as the render target in the output merger stage of the pipeline
 	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), frameIndex, rtvDescriptorSize);
 	
+	//Get the handle to the depth/stencil buffer so we can set it in the output merger stage of thr pipeline
+	CD3DX12_CPU_DESCRIPTOR_HANDLE dsvHandle(dsDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+
 	//Set the render target for the output merger stage (the output of the pipeline)
-	commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
+	commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, &dsvHandle);
 
 	//Clear the render target by using the ClearRenderTargetView command
 	const float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
 	commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
+
+	//Clear thr depth/stencil buffer
+	commandList->ClearDepthStencilView(dsDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
 
 	//Draw 
 	commandList->SetGraphicsRootSignature(rootSignature); //Set the root signature
@@ -491,7 +518,8 @@ void UpdatePipeline()
 	commandList->IASetVertexBuffers(0, 1, &vertexBufferView); //Set the vertex buffer (using the vertex buffer view)
 	commandList->IASetIndexBuffer(&indexBufferView);
 	//commandList->DrawInstanced(3, 1, 0, 0); // finally draw 3 vertices (draw the triangle)
-	commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
+	commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);	//Draw first quad
+	commandList->DrawIndexedInstanced(6, 1, 0, 4, 0);	//Draw second quad
 
 	/*Transition the "frameIndex" render target from the render target state to the present state. If the debug layer is enabled, you will receive a
 	warning if present is called on the render target when it's not in the present state*/
@@ -549,6 +577,8 @@ void Cleanup()
 	SAFE_RELEASE(commandQueue);
 	SAFE_RELEASE(rtvDescriptorHeap);
 	SAFE_RELEASE(commandList);
+	SAFE_RELEASE(depthStencilBuffer);
+	SAFE_RELEASE(dsDescriptorHeap);
 
 	for (int i = 0; i < frameBufferCount; ++i)
 	{
