@@ -10,6 +10,7 @@ struct VS_OUTPUT
 	float4 color : COLOR;
 };
  
+//参数是是从上一个管道状态传过来的，即Input Assembler (IA) stage
 VS_OUTPUT main(VS_INPUT input)
 {
 	VS_OUTPUT output;

@@ -50,6 +50,12 @@ LRESULT CALLBACK WndProc(HWND hWnd,
 	LPARAM lParam);
 
 //Direct3d stuff
+//A struct of constant buffer
+/*struct ConstantBuffer
+{
+	XMFLOAT4 colorMultiplier;
+};*/
+
 const int frameBufferCount = 3; //Number of buffers we want, 2 for double buffering, 3 for tripple buffering
 
 ID3D12Device* device; //Direct3d device
@@ -92,6 +98,8 @@ D3D12_INDEX_BUFFER_VIEW indexBufferView;
 ID3D12Resource* depthStencilBuffer;	//A memory for depth buffer and stencil buffer
 
 ID3D12DescriptorHeap* dsDescriptorHeap;	//A descriptor heap for depth and stencil buffer descriptor
+
+ID3D12DescriptorHeap* mainDescriptorHeap[frameBufferCount];
 
 int frameIndex; //Current rtv we are on
 
