@@ -12,6 +12,8 @@
 #include "d3dx12.h"
 #include <string>
 
+using namespace DirectX;
+
 //This will only call release if an object exists
 #define SAFE_RELEASE(p) { if ( (p) ) { (p)->Release(); (p) = 0; } }
 
@@ -50,11 +52,6 @@ LRESULT CALLBACK WndProc(HWND hWnd,
 	LPARAM lParam);
 
 //Direct3d stuff
-//A struct of constant buffer
-/*struct ConstantBuffer
-{
-	XMFLOAT4 colorMultiplier;
-};*/
 
 const int frameBufferCount = 3; //Number of buffers we want, 2 for double buffering, 3 for tripple buffering
 
@@ -99,7 +96,18 @@ ID3D12Resource* depthStencilBuffer;	//A memory for depth buffer and stencil buff
 
 ID3D12DescriptorHeap* dsDescriptorHeap;	//A descriptor heap for depth and stencil buffer descriptor
 
-ID3D12DescriptorHeap* mainDescriptorHeap[frameBufferCount];
+//A struct of constant buffer
+struct ConstantBuffer
+{
+	XMFLOAT4 colorMultiplier;
+};
+
+
+ID3D12DescriptorHeap* mainDescriptorHeap[frameBufferCount];		//Store the descripor to constant buffer
+ID3D12Resource* constantBufferUploadHeap[frameBufferCount];	//Memory on GPU where the constant buffer will be placed
+
+
+UINT8* cbColorMultiplierGPUAddress[frameBufferCount];	//A pointer to the memory location where the constant buffer be mapped
 
 int frameIndex; //Current rtv we are on
 
@@ -116,3 +124,4 @@ void Render(); //Execute the command list
 void Cleanup(); //Release com ojects and clean up memory
 
 void WaitForPreviousFrame(); //Wait until gpu is finished with command list
+ConstantBuffer cbColorMultiplierData;	//The constant buffer data will be sended to the GPU

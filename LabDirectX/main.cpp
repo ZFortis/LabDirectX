@@ -199,10 +199,37 @@ bool InitD3D()
 		return false;
 	}
 
+	//Create Descriptor Table
+	D3D12_DESCRIPTOR_RANGE descriptorTableRanges[1];	//Only onr range right now
+	descriptorTableRanges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;	//This is a range of constant buffer views (descriptor)
+	descriptorTableRanges[0].NumDescriptors = 1;	//We only have one constant buffer
+	descriptorTableRanges[0].BaseShaderRegister = 0;	//Start index of the shader registers in the range
+	descriptorTableRanges[0].RegisterSpace = 0;	//Space 0
+	descriptorTableRanges[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;	//This appends the range to the end of the root signature descriptor tables
+
+	D3D12_ROOT_DESCRIPTOR_TABLE descriptorTable;
+	descriptorTable.NumDescriptorRanges = _countof(descriptorTableRanges);	//Only one range
+	descriptorTable.pDescriptorRanges = &descriptorTableRanges[0];	
+
+	//Creat Root Parameter
+	D3D12_ROOT_PARAMETER rootParameters[1];	//Only one parameter
+	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;	//这个参数的类型
+	rootParameters[0].DescriptorTable = descriptorTable;		//Descriptor table for this parameter
+	rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;		//只有vertex shader访问这个参数
+
+
 	//Create Root Signature
 	//根签名描述
 	CD3DX12_ROOT_SIGNATURE_DESC rootSignatureDesc;
-	rootSignatureDesc.Init(0, nullptr, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+	rootSignatureDesc.Init(_countof(rootParameters),	//Only one root parameter here 
+		rootParameters,
+		0,
+		nullptr,
+		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
+		D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |	//有deny表示不使用该渲染阶段，以此来提高性能
+		D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
+		D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS |
+		D3D12_ROOT_SIGNATURE_FLAG_DENY_PIXEL_SHADER_ROOT_ACCESS);
 
 	//序列化签名
 	ID3DBlob* signature;
@@ -216,6 +243,47 @@ bool InitD3D()
 	if (FAILED(hr))
 	{
 		return false;
+	}
+
+	//Create Buffer Descriptor Heap
+	for (int i = 0; i < frameBufferCount; ++i)
+	{
+		D3D12_DESCRIPTOR_HEAP_DESC heapDesc = {};	//The descriptor of thr descriptor heap
+		heapDesc.NumDescriptors = 1;
+		heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+		heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+		hr = device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&mainDescriptorHeap[i]));
+		if (FAILED(hr))
+		{
+			Running = false;
+		}
+	}
+
+	//Create Constant Buffer Resource Heap
+	//因为每一帧都要更新资源，所以不设置default heap。只有不需要经常更新的资源才使用default heap上传到GPU
+	for (int i = 0; i < frameBufferCount; ++i)
+	{
+		hr = device->CreateCommittedResource(
+			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+			D3D12_HEAP_FLAG_NONE,
+			&CD3DX12_RESOURCE_DESC::Buffer(1024 * 64),	//资源堆的大小，必须是64KB的整数
+			D3D12_RESOURCE_STATE_GENERIC_READ,
+			nullptr,
+			IID_PPV_ARGS(&constantBufferUploadHeap[i]));
+		constantBufferUploadHeap[i]->SetName(L"Constant Buffer Upload Resource Heap");
+		
+		//Create Constant Buffer View
+		D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = {};
+		cbvDesc.BufferLocation = constantBufferUploadHeap[i]->GetGPUVirtualAddress();
+		cbvDesc.SizeInBytes = (sizeof(ConstantBuffer) + 255) & ~255;	//256byte对齐
+		device->CreateConstantBufferView(&cbvDesc, mainDescriptorHeap[i]->GetCPUDescriptorHandleForHeapStart());
+
+		ZeroMemory(&cbColorMultiplierData, sizeof(cbColorMultiplierData));	//在内存中填满零
+
+		//映射Constant Buffer，将数据拷进去
+		CD3DX12_RANGE readRange(0, 0);
+		hr = constantBufferUploadHeap[i]->Map(0, &readRange, reinterpret_cast<void**>(&cbColorMultiplierGPUAddress[i]));
+		memcpy(cbColorMultiplierGPUAddress[i], &cbColorMultiplierData, sizeof(cbColorMultiplierData));
 	}
 
 	//Create Vertex and Pixel Shaders
@@ -338,22 +406,23 @@ bool InitD3D()
 	Vertex vList[] =
 	{
 		//The first which closer to camera,blue
-		{ -0.5f, 0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f },			//Top left
-		{ 0.5f, -0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f },			//Bottom right
+		{ -0.5f, 0.5f, 0.5f, 1.0f, 0.0f, 0.0f, 1.0f },			//Top left
+		{ 0.5f, -0.5f, 0.5f, 1.0f, 0.0f, 1.0f, 1.0f },			//Bottom right
 		{ -0.5f, -0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f },			//Bottom left
-		{ 0.5f, 0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f },			//Top right
-	
+		{ 0.5f, 0.5f, 0.5f, 0.0f, 1.0f, 0.0f, 1.0f },			//Top right
+		/*
 		//The second which further from camera,green
 		{ -0.75f, 0.75f ,0.7f, 0.0f, 1.0f, 0.0f, 1.0f },
 		{ 0.0f, 0.0f, 0.7f, 0.0f, 1.0f, 0.0f, 1.0f },
 		{ -0.75f, 0.0f, 0.7f, 0.0f, 1.0f, 0.0f, 1.0f },
 		{ 0.0f, 0.75f, 0.7f, 0.0f, 1.0f, 0.0f, 1.0f }
+		*/
 	};
 
 	DWORD iList[] =
 	{
-		0, 1, 2,		//First triangle
-		0, 3, 1		//Second triangle
+		0, 1, 2,		//First triangle of the quad
+		0, 3, 1		//Second triangle of the quad
 	};
 
 	int vBufferSize = sizeof(vList);
@@ -467,10 +536,37 @@ bool InitD3D()
 
 void Update()
 {
+	static float rIncrement = 0.00002f;
+	static float gIncrement = 0.00006f;
+	static float bIncrement = 0.00009f;
+
+	cbColorMultiplierData.colorMultiplier.x += rIncrement;
+	cbColorMultiplierData.colorMultiplier.y += gIncrement;
+	cbColorMultiplierData.colorMultiplier.z += bIncrement;
+
+	if (cbColorMultiplierData.colorMultiplier.x >= 1.0 || cbColorMultiplierData.colorMultiplier.x <= 0.0)
+	{
+		cbColorMultiplierData.colorMultiplier.x = cbColorMultiplierData.colorMultiplier.x >= 1.0 ? 1.0 : 0.0;
+		rIncrement = -rIncrement;
+	}
+
+	if (cbColorMultiplierData.colorMultiplier.y >= 1.0 || cbColorMultiplierData.colorMultiplier.y <= 0.0)
+	{
+		cbColorMultiplierData.colorMultiplier.y = cbColorMultiplierData.colorMultiplier.y >= 1.0 ? 1.0 : 0.0;
+		gIncrement = -gIncrement;
+	}
+
+	if (cbColorMultiplierData.colorMultiplier.z >= 1.0 || cbColorMultiplierData.colorMultiplier.z <= 0.0)
+	{
+		cbColorMultiplierData.colorMultiplier.z = cbColorMultiplierData.colorMultiplier.z >= 1.0 ? 1.0 : 0.0;
+		bIncrement = -bIncrement;
+	}
+	
+	memcpy(cbColorMultiplierGPUAddress[frameIndex], &cbColorMultiplierData, sizeof(cbColorMultiplierData));
 }
 
 //更新渲染管道
-void UpdatePipeline()
+void UpdatePipeline()	
 {
 	HRESULT hr;
 
@@ -511,9 +607,15 @@ void UpdatePipeline()
 
 	//Clear thr depth/stencil buffer
 	commandList->ClearDepthStencilView(dsDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+	
+	commandList->SetGraphicsRootSignature(rootSignature); //Set the root signature
+
+	ID3D12DescriptorHeap* descriptorHeaps[] = { mainDescriptorHeap[frameIndex] };
+	commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+	commandList->SetGraphicsRootDescriptorTable(0, mainDescriptorHeap[frameIndex]->GetGPUDescriptorHandleForHeapStart());
 
 	//Draw 
-	commandList->SetGraphicsRootSignature(rootSignature); //Set the root signature
 	commandList->RSSetViewports(1, &viewport); //Set the viewports
 	commandList->RSSetScissorRects(1, &scissorRect); //Set the scissor rects
 	commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST); //Set the primitive topology
@@ -588,6 +690,12 @@ void Cleanup()
 		SAFE_RELEASE(commandAllocator[i]);
 		SAFE_RELEASE(fence[i]);
 	};
+
+	for (int i = 0; i < frameBufferCount; ++i)
+	{
+		SAFE_RELEASE(mainDescriptorHeap[i]);
+		SAFE_RELEASE(constantBufferUploadHeap[i]);
+	}
 
 	SAFE_RELEASE(pipelineStateObject);
 	SAFE_RELEASE(rootSignature);
